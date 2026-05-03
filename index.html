@@ -600,36 +600,22 @@ function stopDemo(){
 }
 
 // ── QR — generado localmente con qrcode.js ────────────────────
+// ══ CLIENT LINK ══════════════════════════════════════════════
 function generateClientLink(){
   if(!myPeerID) return;
   clientLink = RECEPTOR_BASE + '?host=' + encodeURIComponent(myPeerID);
-
-  // Texto del link
   document.getElementById('qr-link-text').textContent = clientLink;
   document.getElementById('qr-link-text').classList.add('active');
-
-  // Ocultar placeholder
-  document.getElementById('qr-placeholder').style.display = 'none';
-
-  // Generar QR en el canvas
-  var canvas = document.getElementById('qr-canvas');
-  canvas.style.display = 'block';
-
-  QRCode.toCanvas(canvas, clientLink, {
-    width: 140,
-    margin: 1,
-    color: { dark:'#000000', light:'#ffffff' }
-  }, function(err){
-    if(err){
-      console.warn('QR error:', err);
-      // Si falla el canvas, mostrar placeholder con el link
-      canvas.style.display = 'none';
-      document.getElementById('qr-placeholder').style.display = 'flex';
-      document.getElementById('qr-placeholder').innerHTML =
-        '<div style="font-size:10px;color:#64748b;word-break:break-all;padding:8px;line-height:1.4">' + clientLink + '</div>';
-    }
-  });
-
+  // QR
+  var qrSrc = 'https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=' + encodeURIComponent(clientLink);
+  var img = document.getElementById('qr-img');
+  img.src = qrSrc;
+  img.style.display='block';
+  document.getElementById('qr-placeholder').style.display='none';
+  // enable buttons
+  document.getElementById('qbtn-copy').disabled=false;
+  document.getElementById('qbtn-wa').disabled=false;
+}
   // Activar botones
   document.getElementById('qbtn-copy').disabled = false;
   document.getElementById('qbtn-wa').disabled   = false;
