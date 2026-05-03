@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>EasyLink · Receptor</title>
+<script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box;}
+  body{
+    background:#000;
+    min-height:100vh;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    font-family:system-ui, -apple-system, sans-serif;
+  }
+  .container{
+    width:100%;
+    max-width:100%;
+    position:relative;
+  }
+  video{
+    width:100%;
+    height:auto;
+    display:block;
+    background:#000;
+  }
+  .status{
+    position:fixed;
+    bottom:20px;
+    left:20px;
+    background:rgba(0,0,0,0.7);
+    backdrop-filter:blur(8px);
+    color:#fff;
+    padding:8px 16px;
+    border-radius:99px;
+    font-size:12px;
+    font-weight:500;
+    font-family:monospace;
+    z-index:100;
+    pointer-events:none;
+  }
+  .error{
+    position:fixed;
+    bottom:20px;
+    right:20px;
+    background:rgba(255,0,0,0.8);
+    color:#fff;
+    padding:8px 16px;
+    border-radius:8px;
+    font-size:12px;
+    z-index:100;
+    display:none;
+  }
+  .loading{
+    position:fixed;
+    top:50%;
+    left:50%;
+    transform:translate(-50%,-50%);
+    color:#fff;
+    background:rgba(0,0,0,0.8);
+    padding:12px 24px;
+    border-radius:99px;
+    font-size:14px;
+    z-index:200;
+    white-space:nowrap;
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <video id="remoteVideo" autoplay playsinline muted></video>
+</div>
+<div class="status" id="status">🔌 Conectando...</div>
+<div class="error" id="errorMsg"></div>
+<div class="loading" id="loading">📡 Buscando transmisor...</div>
+
+<script>
+(function(){
+  // Obtener host ID de la URL (?host=xxxxx)
+  const urlParams = new URLSearchParams(window.location.search);
+  const hostId = urlParams.get('host');
+  
+  const video = document.getElementById('remoteVideo');
+  const statusDiv = document.getElementById('status');
+  const errorDiv = document.getElementById('errorMsg');
+  const loadingDiv = document.getElementById('loading');
+  
+  let peer = null;
+  let currentCall = null;
+  
+  function showError(msg){
+    errorDiv.textContent = '⚠️ ' + msg;
+    errorDiv.style.display = 'block';
+    statusDiv.textContent = '❌ Error';
+    loadingDiv.style.display = 'none';
+    setTimeout(()=>{ errorDiv.style.display = 'none'; }, 5000);
+  }
+  
+  function setStatus(msg){
+    statusDiv.textContent = msg;
+  }
+  
+  if(!hostId){
+    showError('Falta ID del transmisor. Usa ?host=ID_PEER');
+    setStatus('❌ Sin host ID');
+    loadingDiv.style.display = 'none';
+    return;
+  }
+  
+  setStatus('🟡 Conectando a PeerJS...');
+  
+  // Crear Peer receptor (ID aleatorio, no necesita ID fijo)
+  peer = new Peer({
+    debug: 0,
+    config: {
+      iceServers: [
+        { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:stun1.l.google.com:19302' },
+        { urls: 'stun:stun2.l.google.com:19302' },
+        { urls: 'turn:a.relay.metered.ca:80', username: 'open', credential: 'open' },
+        { urls: 'turn:a.relay.metered.ca:443', username: 'open', credential: 'open' },
+        { urls: 'turn:a.relay.metered.ca:443?transport=tcp', username: 'open', credential: 'open' }
+      ],
+      iceCandidatePoolSize: 10
+    }
+  });
+  
+  peer.on('open', function(myId){
+    setStatus('🟢 Conectado al servidor');
+    loadingDiv.textContent = '📞 Llamando al transmisor ' + hostId.slice(0,8)+'...';
+    
+    // El receptor debe LLAMAR al transmisor, no esperar call
+    // Pero ojo: El transmisor ya está haciendo peer.call()
+    // Si el receptor también llama, se duplica.
+    // La forma correcta: El transmisor inicia la llamada, el receptor responde.
+    // Pero el transmisor ya hace peer.call() cuando un viewer se conecta.
+    // Entonces: El receptor se conecta primero vía DataConnection para avisar,
+    // y luego el transmisor llama al receptor.
+    // Tu transmisor actual: Cuando llega 'viewer-hello', hace callViewer(conn.peer)
+    // Así que nosotros primero enviamos 'viewer-hello' por data connection,
+    // luego el transmisor nos llamará.
+    
+    // Paso 1: Crear data connection para saludar
+    const dataConn = peer.connect(hostId);
+    
+    dataConn.on('open', function(){
+      setStatus('📡 Saludando al transmisor...');
+      loadingDiv.textContent = '📡 Esperando stream de video...';
+      // Enviar hello igual que tu transmisor espera
+      dataConn.send({ type: 'viewer-hello', name: 'Receptor' });
+    });
+    
+    dataConn.on('error', function(err){
+      console.warn('DataConn error', err);
+      showError('No se pudo contactar al transmisor. ¿Está activo?');
+    });
+    
+    // Paso 2: Esperar la llamada de video del transmisor
+    peer.on('call', function(incomingCall){
+      setStatus('📹 Recibiendo video...');
+      loadingDiv.textContent = '🎬 Cargando video...';
+      
+      currentCall = incomingCall;
+      // Responder aceptando el stream (sin audio del lado receptor, pero el stream puede traer audio)
+      // El transmisor manda audio:false según tu código (audio:false en getDisplayMedia)
+      // Así que no hay audio. Perfecto.
+      incomingCall.answer(); // sin enviar stream propio
+      
+      incomingCall.on('stream', function(remoteStream){
+        setStatus('🟢 EN VIVO');
+        loadingDiv.style.display = 'none';
+        // Asignar stream al video
+        video.srcObject = remoteStream;
+        video.play().catch(e=>console.warn('autoplay error',e));
+        setStatus('🟢 EN VIVO - Viendo pantalla');
+      });
+      
+      incomingCall.on('error', function(err){
+        console.error('Call error', err);
+        showError('Error en la transmisión de video');
+        loadingDiv.style.display = 'none';
+      });
+      
+      incomingCall.on('close', function(){
+        setStatus('⏹ Transmisión terminada');
+        video.srcObject = null;
+        loadingDiv.textContent = '⏹ Transmisor detuvo la demo';
+        loadingDiv.style.display = 'flex';
+      });
+    });
+  });
+  
+  peer.on('error', function(err){
+    console.error('Peer error', err);
+    if(err.type === 'peer-unavailable'){
+      showError('El transmisor no está disponible o no existe');
+    } else {
+      showError('Error de conexión: ' + (err.message || err.type));
+    }
+    loadingDiv.style.display = 'none';
+  });
+  
+  // Limpieza al cerrar
+  window.addEventListener('beforeunload', function(){
+    if(peer) peer.destroy();
+  });
+})();
+</script>
+</body>
+</html>
