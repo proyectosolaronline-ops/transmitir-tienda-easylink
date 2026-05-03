@@ -1,0 +1,610 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#000000">
+<title>EasyLink · Vista en Vivo</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#060910;--s3:#1e2736;
+  --border2:rgba(255,255,255,.15);
+  --primary:#2563eb;--primary-glow:rgba(37,99,235,.4);
+  --text:#e2e8f0;--muted:#64748b;
+  --font:'Space Grotesk',sans-serif;
+}
+html,body{
+  width:100%;height:100%;background:#000;
+  font-family:var(--font);color:var(--text);
+  overflow:hidden;
+  -webkit-tap-highlight-color:transparent;
+  touch-action:manipulation;
+}
+
+.screen{
+  position:fixed;inset:0;
+  display:flex;flex-direction:column;
+  align-items:center;justify-content:center;
+  transition:opacity .4s;z-index:5;
+}
+.screen.hidden{opacity:0;pointer-events:none;z-index:0}
+
+/* ── CONECTANDO ── */
+#screen-connecting{gap:20px;background:var(--bg)}
+.brand{display:flex;align-items:center;gap:10px;margin-bottom:4px}
+.brand-icon{
+  width:44px;height:44px;border-radius:13px;
+  background:var(--primary);
+  display:flex;align-items:center;justify-content:center;
+  box-shadow:0 0 28px var(--primary-glow);
+}
+.brand-name{font-size:22px;font-weight:700;letter-spacing:-.02em}
+.brand-name span{color:#60a5fa}
+.spinner{
+  width:44px;height:44px;border-radius:50%;
+  border:3px solid #1e2736;border-top-color:var(--primary);
+  animation:spin .75s linear infinite;
+}
+@keyframes spin{to{transform:rotate(360deg)}}
+.connect-msg{font-size:14px;color:var(--muted);text-align:center;max-width:260px;line-height:1.6}
+.connect-sub{font-size:11px;color:#475569;margin-top:4px;font-family:monospace;text-align:center}
+
+/* ── EN VIVO ── */
+#screen-live{background:#000;padding:0;z-index:2}
+
+#remote-video{
+  position:fixed;inset:0;
+  width:100%;height:100%;
+  object-fit:contain;
+  background:#000;
+  z-index:1;display:block;
+}
+#screen-live.fill-mode #remote-video{object-fit:cover}
+
+/* ── BARRA SUPERIOR ── */
+#top-bar{
+  position:fixed;top:0;left:0;right:0;z-index:20;
+  padding-top:max(env(safe-area-inset-top),10px);
+  padding-left:16px;padding-right:16px;padding-bottom:28px;
+  background:linear-gradient(to bottom,rgba(0,0,0,.75) 0%,transparent 100%);
+  display:flex;align-items:center;gap:10px;
+  transition:opacity .3s,transform .3s;
+}
+#top-bar.hide{opacity:0;transform:translateY(-100%);pointer-events:none}
+.top-logo{display:flex;align-items:center;gap:8px}
+.top-logo-icon{
+  width:30px;height:30px;border-radius:9px;
+  background:var(--primary);
+  display:flex;align-items:center;justify-content:center;
+  box-shadow:0 0 14px var(--primary-glow);
+}
+.top-logo-name{font-size:14px;font-weight:700}
+.top-logo-name span{color:#60a5fa}
+.top-spacer{flex:1}
+.live-pill{
+  display:flex;align-items:center;gap:6px;
+  background:rgba(239,68,68,.85);
+  padding:5px 12px;border-radius:99px;
+  font-size:10px;font-weight:700;letter-spacing:.09em;
+  box-shadow:0 2px 10px rgba(239,68,68,.4);
+}
+.live-dot{width:7px;height:7px;border-radius:50%;background:#fff;animation:blink .85s infinite}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.2}}
+
+/* ── BARRA INFERIOR ── */
+#bottom-bar{
+  position:fixed;bottom:0;left:0;right:0;z-index:20;
+  padding-bottom:max(env(safe-area-inset-bottom),14px);
+  padding-left:20px;padding-right:20px;padding-top:48px;
+  background:linear-gradient(to top,rgba(0,0,0,.78) 0%,transparent 100%);
+  display:flex;align-items:flex-end;justify-content:flex-end;gap:12px;
+  transition:opacity .3s,transform .3s;
+}
+#bottom-bar.hide{opacity:0;transform:translateY(100%);pointer-events:none}
+
+.fab-wrap{display:flex;flex-direction:column;align-items:center;gap:5px}
+.fab{
+  width:50px;height:50px;border-radius:50%;
+  border:1.5px solid rgba(255,255,255,.2);
+  background:rgba(15,20,30,.72);
+  backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
+  display:flex;align-items:center;justify-content:center;
+  cursor:pointer;color:#fff;
+  transition:transform .15s,background .15s;
+  -webkit-appearance:none;outline:none;flex-shrink:0;
+}
+.fab:active{transform:scale(.86);background:rgba(60,60,80,.9)}
+.fab.primary{
+  background:rgba(37,99,235,.8);
+  border-color:rgba(37,99,235,.5);
+  box-shadow:0 0 22px var(--primary-glow);
+}
+.fab svg{width:20px;height:20px;pointer-events:none}
+.fab-lbl{font-size:9px;color:rgba(255,255,255,.5);letter-spacing:.05em;text-align:center}
+
+/* ── ERROR ── */
+#screen-error{gap:16px;background:var(--bg);padding:40px}
+.err-emoji{font-size:52px}
+.err-title{font-size:20px;font-weight:700;color:#f87171;text-align:center}
+.err-msg{font-size:13px;color:var(--muted);text-align:center;line-height:1.6;max-width:280px}
+.retry-btn{
+  margin-top:8px;padding:12px 32px;border-radius:12px;
+  background:var(--primary);color:#fff;
+  font-size:14px;font-weight:600;border:none;cursor:pointer;
+  font-family:var(--font);box-shadow:0 4px 18px var(--primary-glow);
+  transition:transform .15s;
+}
+.retry-btn:active{transform:scale(.96)}
+
+/* ── TOAST ── */
+#toast{
+  position:fixed;bottom:100px;left:50%;
+  transform:translateX(-50%) translateY(6px);
+  background:rgba(30,39,54,.95);border:1px solid var(--border2);
+  color:var(--text);border-radius:12px;padding:10px 22px;
+  font-size:12px;font-weight:500;z-index:200;pointer-events:none;
+  opacity:0;white-space:nowrap;
+  backdrop-filter:blur(10px);
+  box-shadow:0 8px 32px rgba(0,0,0,.6);
+  transition:opacity .25s,transform .25s;
+}
+#toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+
+/* ELIMINADO: overlay redundante, ahora funciona automático */
+
+/* ── RECONECTANDO ── */
+#reconnect-bar{
+  position:fixed;top:max(env(safe-area-inset-top),10px);
+  left:50%;transform:translateX(-50%);
+  background:rgba(249,115,22,.9);
+  color:#fff;font-size:11px;font-weight:700;
+  padding:6px 16px;border-radius:99px;
+  z-index:300;display:none;
+  box-shadow:0 2px 12px rgba(249,115,22,.4);
+}
+#reconnect-bar.on{display:block}
+</style>
+</head>
+<body>
+
+<!-- ══ CONECTANDO ══ -->
+<div class="screen" id="screen-connecting">
+  <div class="brand">
+    <div class="brand-icon">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M6 2L3 6v14a2 2 0 002 2h14a2 2 0 002-2V6l-3-4z"/>
+        <line x1="3" y1="6" x2="21" y2="6"/>
+        <path d="M16 10a4 4 0 01-8 0"/>
+      </svg>
+    </div>
+    <div class="brand-name">Easy<span>Link</span></div>
+  </div>
+  <div class="spinner"></div>
+  <div class="connect-msg" id="connect-msg">Conectando con el presentador...</div>
+  <div class="connect-sub" id="connect-sub"></div>
+</div>
+
+<!-- ══ EN VIVO ══ -->
+<div class="screen hidden" id="screen-live">
+  <video id="remote-video" autoplay playsinline muted></video>
+
+  <div id="top-bar">
+    <div class="top-logo">
+      <div class="top-logo-icon">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M6 2L3 6v14a2 2 0 002 2h14a2 2 0 002-2V6l-3-4z"/>
+          <line x1="3" y1="6" x2="21" y2="6"/>
+          <path d="M16 10a4 4 0 01-8 0"/>
+        </svg>
+      </div>
+      <div class="top-logo-name">Easy<span>Link</span></div>
+    </div>
+    <div class="top-spacer"></div>
+    <div class="live-pill"><div class="live-dot"></div>EN VIVO</div>
+  </div>
+
+  <div id="bottom-bar">
+    <!-- Ajustar / Llenar -->
+    <div class="fab-wrap">
+      <button class="fab" id="btn-fit" onclick="toggleFit()">
+        <svg id="fit-out" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/>
+          <line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/>
+        </svg>
+        <svg id="fit-in" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none">
+          <polyline points="4 14 10 14 10 20"/><polyline points="20 10 14 10 14 4"/>
+          <line x1="10" y1="14" x2="3" y2="21"/><line x1="21" y1="3" x2="14" y2="10"/>
+        </svg>
+      </button>
+      <div class="fab-lbl" id="fit-lbl">LLENAR</div>
+    </div>
+
+    <!-- Activar audio (unmute) -->
+    <div class="fab-wrap">
+      <button class="fab" id="btn-audio" onclick="toggleAudio()">
+        <svg id="audio-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+          <line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/>
+        </svg>
+        <svg id="audio-on" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none">
+          <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+          <path d="M19.07 4.93a10 10 0 010 14.14M15.54 8.46a5 5 0 010 7.07"/>
+        </svg>
+      </button>
+      <div class="fab-lbl" id="audio-lbl">AUDIO</div>
+    </div>
+
+    <!-- Pantalla completa -->
+    <div class="fab-wrap">
+      <button class="fab primary" onclick="toggleFullscreen()">
+        <svg id="fs-enter" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M8 3H5a2 2 0 00-2 2v3"/><path d="M21 8V5a2 2 0 00-2-2h-3"/>
+          <path d="M3 16v3a2 2 0 002 2h3"/><path d="M16 21h3a2 2 0 002-2v-3"/>
+        </svg>
+        <svg id="fs-exit-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none">
+          <path d="M8 3v3a2 2 0 01-2 2H3"/><path d="M21 8h-3a2 2 0 01-2-2V3"/>
+          <path d="M3 16h3a2 2 0 012 2v3"/><path d="M16 21v-3a2 2 0 012-2h3"/>
+        </svg>
+      </button>
+      <div class="fab-lbl" id="fs-lbl">COMPLETA</div>
+    </div>
+  </div>
+</div>
+
+<!-- ══ ERROR ══ -->
+<div class="screen hidden" id="screen-error">
+  <div class="err-emoji">📡</div>
+  <div class="err-title" id="err-title">Sin señal</div>
+  <div class="err-msg" id="err-msg">No se pudo conectar con el presentador.</div>
+  <button class="retry-btn" onclick="location.reload()">Reintentar</button>
+</div>
+
+<!-- Barra de reconexión -->
+<div id="reconnect-bar">⟳ Reconectando...</div>
+
+<div id="toast"></div>
+
+<script>
+var params  = new URLSearchParams(window.location.search);
+var HOST_ID = params.get('host') || '';
+var MY_NAME = params.get('name') || 'Cliente';
+
+var peer       = null;
+var dataConn   = null;
+var activeCall = null;
+var isFill     = false;
+var isMuted    = true;
+var ctrlsVisible = true;
+var hideTimer  = null;
+var reconnectTimer = null;
+var intentos   = 0;
+
+// Variable para saber si el usuario ya vio el stream (autoplay solucionado)
+var streamReceived = false;
+
+// ── PANTALLAS ────────────────────────────────────────────────
+function show(id){
+  ['screen-connecting','screen-live','screen-error'].forEach(function(s){
+    var el = document.getElementById(s);
+    el.classList.toggle('hidden', s !== id);
+  });
+}
+
+// ── CONTROLES AUTO-HIDE ──────────────────────────────────────
+function showCtrl(){
+  var topBar = document.getElementById('top-bar');
+  var bottomBar = document.getElementById('bottom-bar');
+  if(topBar) topBar.classList.remove('hide');
+  if(bottomBar) bottomBar.classList.remove('hide');
+  ctrlsVisible = true;
+  clearTimeout(hideTimer);
+  hideTimer = setTimeout(hideCtrl, 4000);
+}
+function hideCtrl(){
+  var topBar = document.getElementById('top-bar');
+  var bottomBar = document.getElementById('bottom-bar');
+  if(topBar) topBar.classList.add('hide');
+  if(bottomBar) bottomBar.classList.add('hide');
+  ctrlsVisible = false;
+}
+
+function attachGlobalListeners(){
+  document.addEventListener('click', function(e){
+    if(document.getElementById('screen-live').classList.contains('hidden')) return;
+    if(e.target.closest('.fab')) return;
+    if(ctrlsVisible){
+      hideCtrl();
+    } else {
+      showCtrl();
+    }
+  });
+  document.addEventListener('touchstart', function(){
+    if(!document.getElementById('screen-live').classList.contains('hidden')) showCtrl();
+  }, {passive:true});
+}
+
+// ── FULLSCREEN ───────────────────────────────────────────────
+function toggleFullscreen(){
+  var inFS = !!(document.fullscreenElement || document.webkitFullscreenElement);
+  inFS ? salirFS() : entrarFS();
+}
+function entrarFS(){
+  var el = document.documentElement;
+  if(el.requestFullscreen) el.requestFullscreen({navigationUI:'hide'});
+  else if(el.webkitRequestFullscreen) el.webkitRequestFullscreen();
+  try{ screen.orientation && screen.orientation.lock && screen.orientation.lock('landscape').catch(function(){}); }catch(e){}
+}
+function salirFS(){
+  if(document.exitFullscreen) document.exitFullscreen();
+  else if(document.webkitExitFullscreen) document.webkitExitFullscreen();
+}
+['fullscreenchange','webkitfullscreenchange'].forEach(function(ev){
+  document.addEventListener(ev, function(){
+    var isFS = !!(document.fullscreenElement || document.webkitFullscreenElement);
+    var fsEnter = document.getElementById('fs-enter');
+    var fsExit = document.getElementById('fs-exit-ico');
+    var fsLbl = document.getElementById('fs-lbl');
+    if(fsEnter) fsEnter.style.display = isFS ? 'none' : 'block';
+    if(fsExit) fsExit.style.display = isFS ? 'block' : 'none';
+    if(fsLbl) fsLbl.textContent = isFS ? 'SALIR' : 'COMPLETA';
+  });
+});
+
+// ── AJUSTE IMAGEN ────────────────────────────────────────────
+function toggleFit(){
+  isFill = !isFill;
+  var liveScreen = document.getElementById('screen-live');
+  if(liveScreen) liveScreen.classList.toggle('fill-mode', isFill);
+  var fitOut = document.getElementById('fit-out');
+  var fitIn = document.getElementById('fit-in');
+  var fitLbl = document.getElementById('fit-lbl');
+  if(fitOut) fitOut.style.display = isFill ? 'none' : 'block';
+  if(fitIn) fitIn.style.display = isFill ? 'block' : 'none';
+  if(fitLbl) fitLbl.textContent = isFill ? 'AJUSTAR' : 'LLENAR';
+  toast(isFill ? 'Modo Llenar' : 'Modo Ajustar');
+}
+
+// ── AUDIO ────────────────────────────────────────────────────
+function toggleAudio(){
+  var vid = document.getElementById('remote-video');
+  if(!vid) return;
+  isMuted = !isMuted;
+  vid.muted = isMuted;
+  var audioOff = document.getElementById('audio-off');
+  var audioOn = document.getElementById('audio-on');
+  var audioLbl = document.getElementById('audio-lbl');
+  if(audioOff) audioOff.style.display = isMuted ? 'block' : 'none';
+  if(audioOn) audioOn.style.display = !isMuted ? 'block' : 'none';
+  if(audioLbl) audioLbl.textContent = isMuted ? 'AUDIO' : 'SILENCIO';
+  toast(isMuted ? '🔇 Silenciado' : '🔊 Con audio');
+}
+
+// ── CONECTAR VIDEO ── AHORA CON AUTOPLAY GARANTIZADO ─────────
+function conectarVideo(remoteStream){
+  var vid = document.getElementById('remote-video');
+  if(!vid) return;
+  
+  // 🔥 SOLUCIÓN DEFINITIVA PARA AUTOPLAY 🔥
+  // Eliminar cualquier pista de audio del stream (por si acaso el emisor manda algo)
+  var audioTracks = remoteStream.getAudioTracks();
+  audioTracks.forEach(function(track) {
+    remoteStream.removeTrack(track);
+    track.stop();
+    console.log('🔇 Pista de audio eliminada del stream');
+  });
+  
+  // Crear stream SOLO con video
+  var soloVideoStream = new MediaStream(remoteStream.getVideoTracks());
+  
+  vid.srcObject = soloVideoStream;
+  vid.muted = true;
+  vid.playsInline = true;
+  vid.autoplay = true;
+  isMuted = true;
+  
+  var audioOff = document.getElementById('audio-off');
+  var audioOn = document.getElementById('audio-on');
+  var audioLbl = document.getElementById('audio-lbl');
+  if(audioOff) audioOff.style.display = 'block';
+  if(audioOn) audioOn.style.display = 'none';
+  if(audioLbl) audioLbl.textContent = 'AUDIO';
+  
+  // Mostrar pantalla live
+  show('screen-live');
+  var reconnectBar = document.getElementById('reconnect-bar');
+  if(reconnectBar) reconnectBar.classList.remove('on');
+  
+  streamReceived = true;
+  
+  // ⚠️ CRUCIAL: NO llamamos a vid.play() directamente
+  // Dejamos que el atributo autoplay del video lo maneje
+  // Pero además, forzamos un play silencioso que SIEMPRE funciona
+  setTimeout(function() {
+    if(vid.paused) {
+      var playPromise = vid.play();
+      if(playPromise !== undefined) {
+        playPromise.then(function() {
+          console.log('✅ Reproducción automática exitosa');
+          showCtrl();
+          toast('🔴 En vivo — toca para controles');
+        }).catch(function(error) {
+          console.warn('autoplay falló, mostrando overlay:', error);
+          mostrarOverlayManual();
+        });
+      }
+    } else {
+      showCtrl();
+      toast('🔴 En vivo — toca para controles');
+    }
+  }, 100);
+  
+  vid.onwaiting = function(){ toast('⏳ Cargando video...'); };
+  vid.onerror   = function(){ console.warn('video error'); };
+}
+
+// Overlay manual SOLO si todo lo demás falla (casi nunca ocurrirá)
+function mostrarOverlayManual(){
+  var viejo = document.getElementById('play-overlay-manual');
+  if(viejo) viejo.remove();
+  
+  var o = document.createElement('div');
+  o.id = 'play-overlay-manual';
+  o.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.9);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:200;gap:20px;cursor:pointer;';
+  o.innerHTML = 
+    '<div style="width:80px;height:80px;border-radius:50%;background:#2563eb;display:flex;align-items:center;justify-content:center;">' +
+    '<svg width="32" height="32" viewBox="0 0 24 24" fill="white"><polygon points="5 3 19 12 5 21 5 3"/></svg>' +
+    '</div>' +
+    '<div style="color:white;font-size:16px;font-weight:500;text-align:center;padding:0 32px;">Toca para ver la pantalla compartida</div>';
+  o.onclick = function(){
+    var vid = document.getElementById('remote-video');
+    if(vid && vid.srcObject) {
+      vid.play().then(function(){
+        o.remove();
+        showCtrl();
+        toast('▶ Reproduciendo en vivo');
+      }).catch(function(e){ 
+        console.warn('falló:', e);
+        toast('Error al reproducir, intenta de nuevo');
+      });
+    }
+  };
+  document.body.appendChild(o);
+}
+
+// ── PEER / WEBRTC ────────────────────────────────────────────
+function init(){
+  if(!HOST_ID){
+    showError('Sin presentador', 'No se encontró el ID del presentador en el link.');
+    return;
+  }
+  var connectSub = document.getElementById('connect-sub');
+  if(connectSub) connectSub.textContent = 'Sesión: ' + HOST_ID.slice(0,8) + '...';
+  var connectMsg = document.getElementById('connect-msg');
+  if(connectMsg) connectMsg.textContent = 'Conectando al servidor...';
+  
+  if(peer){ try{ peer.destroy(); }catch(e){} peer = null; }
+  
+  peer = new Peer({
+    debug: 0,
+    config:{
+      iceServers:[
+        { urls:'stun:stun.l.google.com:19302' },
+        { urls:'stun:stun1.l.google.com:19302' },
+        { urls:'stun:stun2.l.google.com:19302' },
+        { urls:'turn:a.relay.metered.ca:80', username:'open', credential:'open' },
+        { urls:'turn:a.relay.metered.ca:443', username:'open', credential:'open' },
+        { urls:'turn:a.relay.metered.ca:443?transport=tcp', username:'open', credential:'open' }
+      ],
+      iceCandidatePoolSize: 10
+    }
+  });
+  
+  peer.on('open', function(myId){
+    if(connectMsg) connectMsg.textContent = 'Anunciándome al presentador...';
+    console.log('Receptor listo, mi ID:', myId, '| Host ID:', HOST_ID);
+    
+    dataConn = peer.connect(HOST_ID, { reliable: true });
+    
+    dataConn.on('open', function(){
+      console.log('Canal de datos abierto');
+      dataConn.send({ type: 'viewer-hello', name: MY_NAME });
+      if(connectMsg) connectMsg.textContent = 'Esperando video del presentador...';
+      intentos = 0;
+    });
+    
+    dataConn.on('error', function(e){
+      console.warn('dataConn error:', e);
+    });
+    
+    dataConn.on('close', function(){
+      console.log('Canal de datos cerrado');
+    });
+  });
+  
+  peer.on('call', function(call){
+    console.log('📞 Llamada de video recibida del transmisor');
+    activeCall = call;
+    
+    // Responder SIN stream propio
+    call.answer();
+    
+    call.on('stream', function(remoteStream){
+      console.log('✅ Stream recibido, tracks:', remoteStream.getTracks().length);
+      remoteStream.getTracks().forEach(function(t){
+        console.log('  track:', t.kind, '| enabled:', t.enabled);
+      });
+      conectarVideo(remoteStream);
+    });
+    
+    call.on('error', function(e){
+      console.warn('call error:', e);
+    });
+    
+    call.on('close', function(){
+      console.log('Llamada cerrada');
+      showError('Transmisión finalizada', 'El presentador detuvo la demo.');
+    });
+  });
+  
+  peer.on('error', function(e){
+    console.warn('PeerJS error:', e.type, e);
+    
+    if(e.type === 'peer-unavailable'){
+      intentos++;
+      if(intentos <= 8){
+        var seg = intentos * 2;
+        if(connectMsg) connectMsg.textContent = 'Presentador no disponible — reintentando en ' + seg + 's...';
+        var reconnectBar = document.getElementById('reconnect-bar');
+        if(reconnectBar) reconnectBar.classList.add('on');
+        reconnectTimer = setTimeout(function(){ init(); }, seg * 1000);
+      } else {
+        showError('Presentador no disponible', 'La sesión no está activa. Pide que inicien la demo y vuelve a abrir el link.');
+      }
+    } else if(e.type === 'network' || e.type === 'server-error'){
+      if(connectMsg) connectMsg.textContent = 'Error de red — reintentando...';
+      reconnectTimer = setTimeout(function(){ init(); }, 3000);
+    } else {
+      if(connectMsg) connectMsg.textContent = 'Error: ' + e.type + ' — reintentando...';
+      reconnectTimer = setTimeout(function(){ init(); }, 4000);
+    }
+  });
+  
+  peer.on('disconnected', function(){
+    console.log('PeerJS desconectado — reconectando...');
+    var reconnectBar = document.getElementById('reconnect-bar');
+    if(reconnectBar) reconnectBar.classList.add('on');
+    try{ peer.reconnect(); }catch(e){ init(); }
+  });
+}
+
+function showError(title, msg){
+  var errTitle = document.getElementById('err-title');
+  var errMsg = document.getElementById('err-msg');
+  if(errTitle) errTitle.textContent = title;
+  if(errMsg) errMsg.textContent = msg;
+  show('screen-error');
+}
+
+// ── TOAST ────────────────────────────────────────────────────
+var _tt;
+function toast(msg){
+  var el = document.getElementById('toast');
+  if(!el) return;
+  el.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(_tt);
+  _tt = setTimeout(function(){ el.classList.remove('show'); }, 2800);
+}
+
+// ── INICIAR ─────────────────────────────────────────────────
+attachGlobalListeners();
+init();
+</script>
+</body>
+</html>
