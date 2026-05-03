@@ -467,21 +467,29 @@ body::before{
 
 <script>
 // ══ CONFIG ══════════════════════════════════════════════════
-var STORE_URL     = 'https://proyectosolaronline-ops.github.io/superOnline-Tienda/index.html?backend=https%3A%2F%2Fscript.google.com%2Fmacros%2Fs%2FAKfycbwQ_ESx2c-3DL83b_-ujjmvevSBGtwjPZ0e1wEHv3cnLbJOplTJDYUb_UiRVyTYXik%2Fexec&store=store_f2fcc889b992';
-var STORE_WA      = '5219999999999'; // ← tu número real
+var STORE_URL   = 'https://proyectosolaronline-ops.github.io/superOnline-Tienda/index.html?backend=https%3A%2F%2Fscript.google.com%2Fmacros%2Fs%2FAKfycbwQ_ESx2c-3DL83b_-ujjmvevSBGtwjPZ0e1wEHv3cnLbJOplTJDYUb_UiRVyTYXik%2Fexec&store=store_f2fcc889b992';
+var STORE_WA    = '5219999999999'; // ← cambia por tu número real
+// URL donde subas el archivo receptor.html (github pages, netlify, etc.)
 var RECEPTOR_BASE = window.location.origin + window.location.pathname.replace('transmisor.html','') + 'receptor.html';
-// ════════════════════════════════════════════════════════════
 
-var peer=null, myPeerID='', connections={}, mediaStream=null;
-var isLive=false, sessionStart=null, clientLink='', isFullscreen=false;
+// ══ STATE ═══════════════════════════════════════════════════
+var peer        = null;
+var myPeerID    = '';
+var connections = {};   // peerId → {conn, name, time}
+var mediaStream = null;
+var isLive      = false;
+var sessionStart= null;
+var fpsCounter  = 0;
+var clientLink  = '';
 
-// ── RELOJ ────────────────────────────────────────────────────
+// ══ CLOCK ═══════════════════════════════════════════════════
 function updateClock(){
   var n=new Date(), h=n.getHours(), m=n.getMinutes();
   document.getElementById('ph-clock').textContent=(h<10?'0'+h:h)+':'+(m<10?'0'+m:m);
 }
 updateClock(); setInterval(updateClock,10000);
 
+// Session timer
 setInterval(function(){
   if(!sessionStart) return;
   var s=Math.floor((Date.now()-sessionStart)/1000);
@@ -489,42 +497,25 @@ setInterval(function(){
   document.getElementById('stat-time').textContent=m+':'+(ss<10?'0'+ss:ss);
 },1000);
 
-// ── FULLSCREEN ───────────────────────────────────────────────
-function toggleFullscreen(){
-  isFullscreen ? exitFullscreenMode() : enterFullscreenMode();
-}
-function enterFullscreenMode(){
-  var el=document.getElementById('main-stage');
-  if(el.requestFullscreen) el.requestFullscreen().catch(function(){ applyFSFallback(true); });
-  else if(el.webkitRequestFullscreen) el.webkitRequestFullscreen();
-  else applyFSFallback(true);
-}
-function exitFullscreenMode(){
-  if(document.fullscreenElement||document.webkitFullscreenElement){
-    if(document.exitFullscreen) document.exitFullscreen();
-    else if(document.webkitExitFullscreen) document.webkitExitFullscreen();
-  } else { applyFSFallback(false); }
-}
-function applyFSFallback(enter){
-  var layout=document.getElementById('main-layout');
-  var exitBtn=document.getElementById('fs-exit-btn');
-  var fsTxt=document.getElementById('btn-fs-text');
-  layout.classList.toggle('fs-mode',enter);
-  exitBtn.classList.toggle('on',enter);
-  fsTxt.textContent=enter?'Salir':'Pantalla Completa';
-  isFullscreen=enter;
-}
-['fullscreenchange','webkitfullscreenchange'].forEach(function(ev){
-  document.addEventListener(ev,function(){
-    var isFS=!!(document.fullscreenElement||document.webkitFullscreenElement);
-    applyFSFallback(isFS);
-  });
-});
-
-// ── PEER INIT ────────────────────────────────────────────────
+// ══ PEER INIT ════════════════════════════════════════════════
 function initPeer(){
   setStatus('idle','Conectando al servidor...');
-  peer = new Peer({ debug:0 });
+  peer = new Peer({
+    debug:0,
+    config:{
+      iceServers:[
+        // STUN: descubre IP pública
+        { urls:'stun:stun.l.google.com:19302' },
+        { urls:'stun:stun1.l.google.com:19302' },
+        { urls:'stun:stun2.l.google.com:19302' },
+        // TURN: relay para redes móviles, CGNAT, hotspots
+        { urls:'turn:a.relay.metered.ca:80',    username:'open',  credential:'open' },
+        { urls:'turn:a.relay.metered.ca:443',   username:'open',  credential:'open' },
+        { urls:'turn:a.relay.metered.ca:443?transport=tcp', username:'open', credential:'open' }
+      ],
+      iceCandidatePoolSize:10
+    }
+  });
 
   peer.on('open', function(id){
     myPeerID = id;
@@ -535,32 +526,38 @@ function initPeer(){
 
   peer.on('connection', function(conn){
     conn.on('data', function(d){
-      if(d.type==='viewer-hello'){
-        connections[conn.peer] = { conn:conn, name:d.name||'Cliente', time:new Date().toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit'}) };
+      if(d.type === 'viewer-hello'){
+        connections[conn.peer] = { conn:conn, name:d.name||'Cliente', time: new Date().toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit'}) };
         renderConnections();
-        toast('👀 '+( d.name||'Cliente')+' se conectó');
-        if(isLive && mediaStream) callViewer(conn.peer);
+        toast('👀 '+d.name+' se conectó');
+        // enviar stream si ya está transmitiendo
+        if(isLive && mediaStream){ callViewer(conn.peer); }
       }
     });
-    conn.on('close', function(){ delete connections[conn.peer]; renderConnections(); });
+    conn.on('close', function(){
+      delete connections[conn.peer];
+      renderConnections();
+    });
   });
 
   peer.on('error', function(e){
-    console.warn('PeerJS error:', e);
-    setStatus('idle','Error — reintentando...');
+    console.warn('PeerJS error:',e);
+    setStatus('idle','Error de conexión — reintentando...');
     setTimeout(initPeer, 3000);
   });
 }
 
-// ── DEMO ─────────────────────────────────────────────────────
+// ══ DEMO START/STOP ══════════════════════════════════════════
 async function startDemo(){
   if(isLive) return;
   try {
+    // capturar pestaña/pantalla
     mediaStream = await navigator.mediaDevices.getDisplayMedia({
-      video:{ frameRate:{ideal:30}, width:{ideal:1280}, displaySurface:'browser' },
+      video:{ frameRate:{ideal:30}, width:{ideal:1280} },
       audio:false,
-      preferCurrentTab:true
+      preferCurrentTab: true
     });
+
     isLive = true;
     sessionStart = Date.now();
     document.getElementById('btn-start').style.display='none';
@@ -568,10 +565,21 @@ async function startDemo(){
     document.getElementById('live-badge').classList.add('on');
     setStatus('waiting','Esperando clientes...');
     generateClientLink();
-    mediaStream.getTracks()[0].onended = stopDemo;
+
+    // FPS counter
+    var vt = mediaStream.getVideoTracks()[0];
+    setInterval(function(){
+      if(!isLive) return;
+      document.getElementById('stat-frames').textContent = '~30';
+      document.getElementById('stat-kb').textContent = 'HD';
+    }, 2000);
+
+    mediaStream.getTracks()[0].onended = function(){ stopDemo(); };
+
+    // llamar a viewers ya conectados
     Object.keys(connections).forEach(callViewer);
-    toast('🔴 Demo iniciada');
-    setInterval(function(){ if(isLive){ document.getElementById('stat-frames').textContent='~30'; document.getElementById('stat-kb').textContent='HD'; } },2000);
+
+    toast('🔴 Demo iniciada — envía el link al cliente');
   } catch(e){
     toast('⚠️ Necesitas compartir la pestaña del navegador');
     console.warn(e);
@@ -585,21 +593,19 @@ function callViewer(viewerId){
 }
 
 function stopDemo(){
-  if(!isLive) return;
-  isLive=false;
+  isLive = false;
   if(mediaStream){ mediaStream.getTracks().forEach(function(t){t.stop()}); mediaStream=null; }
   document.getElementById('btn-start').style.display='flex';
   document.getElementById('btn-stop').style.display='none';
   document.getElementById('live-badge').classList.remove('on');
   setStatus('idle','Demo detenida');
-  sessionStart=null;
+  sessionStart = null;
   document.getElementById('stat-time').textContent='0:00';
   document.getElementById('stat-frames').textContent='0';
   document.getElementById('stat-kb').textContent='—';
   toast('⏹ Demo detenida');
 }
 
-// ── QR — generado localmente con qrcode.js ────────────────────
 // ══ CLIENT LINK ══════════════════════════════════════════════
 function generateClientLink(){
   if(!myPeerID) return;
@@ -616,41 +622,37 @@ function generateClientLink(){
   document.getElementById('qbtn-copy').disabled=false;
   document.getElementById('qbtn-wa').disabled=false;
 }
-  // Activar botones
-  document.getElementById('qbtn-copy').disabled = false;
-  document.getElementById('qbtn-wa').disabled   = false;
+
+// ══ STATUS ═══════════════════════════════════════════════════
+function setStatus(cls, txt){
+  var p = document.getElementById('status-pill');
+  p.className = 'status-pill '+cls;
+  document.getElementById('status-text').textContent = txt;
+  document.getElementById('stat-viewers').textContent = Object.keys(connections).length;
 }
 
-// Abrir QR en ventana grande (sin depender de API externa)
-function abrirQRVentana(){
-  if(!clientLink){ toast('Inicia la demo primero'); return; }
-  var canvas = document.getElementById('qr-canvas');
-  if(!canvas || canvas.style.display==='none'){ toast('QR no generado aún'); return; }
-function openQRPopup(){
-  if(clientLink){
-    window.open('https://api.qrserver.com/v1/create-qr-code/?size=400x400&data='+encodeURIComponent(clientLink),'_blank');
-  } else { toast('Inicia la demo primero para generar el QR'); }
+function renderConnections(){
+  var list = document.getElementById('conn-list');
+  var ids  = Object.keys(connections);
+  document.getElementById('stat-viewers').textContent = ids.length;
+  if(!ids.length){
+    list.innerHTML='<div class="no-conn"><div class="no-conn-ico">📡</div><span>Nadie conectado aún</span></div>';
+    setStatus(isLive?'waiting':'idle', isLive?'Esperando clientes...':'Listo');
+    return;
+  }
+  setStatus('connected', ids.length+' viewer'+(ids.length>1?'s':'')+' en vivo');
+  list.innerHTML = ids.map(function(id){
+    var c = connections[id];
+    return '<div class="conn-item"><div class="conn-dot on"></div><div class="conn-name">'+c.name+'</div><div class="conn-time">'+c.time+'</div></div>';
+  }).join('');
 }
 
-  // Crear canvas grande temporal
-  var big = document.createElement('canvas');
-  QRCode.toCanvas(big, clientLink, { width:400, margin:2, color:{ dark:'#000', light:'#fff' } }, function(err){
-    if(err){ toast('Error al generar QR grande'); return; }
-    var win = window.open('','_blank','width=500,height=560');
-    win.document.write(
-      '<html><head><title>QR Cliente</title><style>body{margin:0;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#060910;height:100vh;gap:16px;font-family:sans-serif}</style></head>' +
-      '<body><img src="'+big.toDataURL()+'" style="border-radius:12px;width:360px;height:360px">' +
-      '<p style="color:#60a5fa;font-size:11px;word-break:break-all;max-width:380px;text-align:center">'+clientLink+'</p>' +
-      '<button onclick="navigator.clipboard.writeText(\''+clientLink+'\').then(()=>this.textContent=\'✅ Copiado\')" style="padding:10px 24px;background:#2563eb;color:#fff;border:none;border-radius:8px;font-size:13px;cursor:pointer">Copiar link</button>' +
-      '</body></html>'
-    );
-  });
-}
-
-// ── UTILS ────────────────────────────────────────────────────
+// ══ UTILS ════════════════════════════════════════════════════
 function copyClientLink(){
   if(!clientLink){ toast('Inicia la demo primero'); return; }
-  navigator.clipboard.writeText(clientLink).then(function(){ toast('✅ Link copiado'); });
+  navigator.clipboard.writeText(clientLink).then(function(){
+    toast('✅ Link copiado');
+  });
 }
 function copyPeerID(){
   navigator.clipboard.writeText(myPeerID).then(function(){ toast('ID copiado'); });
@@ -658,61 +660,52 @@ function copyPeerID(){
 function enviarLinkWA(){
   if(!clientLink && !myPeerID){ toast('Inicia la demo primero'); return; }
   var link = clientLink || (RECEPTOR_BASE+'?host='+myPeerID);
-  var msg = '🛍️ ¡Mira mi tienda en vivo!\n\nAbre este link y verás exactamente lo que te estoy mostrando:\n\n'+link+'\n\n_(Powered by EasyLink)_';
+  var msg  = '🛍️ ¡Mira mi tienda en vivo!\n\nAbre este link en tu celular y verás exactamente lo que yo te estoy mostrando:\n\n'+link+'\n\n_(Powered by EasyLink)_';
   window.open('https://wa.me/'+STORE_WA+'?text='+encodeURIComponent(msg),'_blank');
 }
-function setStatus(cls, txt){
-  var p = document.getElementById('status-pill');
-  p.className = 'status-pill '+cls;
-  document.getElementById('status-text').textContent = txt;
-  document.getElementById('stat-viewers').textContent = Object.keys(connections).length;
+function abrirWA(){
+  window.open('https://wa.me/'+STORE_WA,'_blank');
 }
-function renderConnections(){
-  var list=document.getElementById('conn-list');
-  var ids=Object.keys(connections);
-  document.getElementById('stat-viewers').textContent=ids.length;
-  if(!ids.length){
-    list.innerHTML='<div class="no-conn"><div class="no-conn-ico">📡</div><span>Nadie conectado aún</span></div>';
-    setStatus(isLive?'waiting':'idle', isLive?'Esperando clientes...':'Listo');
-    return;
-  }
-  setStatus('connected', ids.length+' viewer'+(ids.length>1?'s':'')+' en vivo');
-  list.innerHTML=ids.map(function(id){
-    var c=connections[id];
-    return '<div class="conn-item"><div class="conn-dot on"></div><div class="conn-name">'+c.name+'</div><div class="conn-time">'+c.time+'</div></div>';
-  }).join('');
+function openQRPopup(){
+  if(clientLink){
+    window.open('https://api.qrserver.com/v1/create-qr-code/?size=400x400&data='+encodeURIComponent(clientLink),'_blank');
+  } else { toast('Inicia la demo primero para generar el QR'); }
 }
 function reloadStore(){
-  var f=document.getElementById('store-frame');
+  var f = document.getElementById('store-frame');
   document.getElementById('ph-loading').classList.remove('gone');
-  f.src=f.src;
+  f.src = f.src;
 }
 function scrollTop(){
   try{ document.getElementById('store-frame').contentWindow.scrollTo({top:0,behavior:'smooth'}); }
   catch(e){ reloadStore(); }
 }
-function onIframeLoad(){ document.getElementById('ph-loading').classList.add('gone'); }
+function onIframeLoad(){
+  document.getElementById('ph-loading').classList.add('gone');
+}
 function activateStep(el){
   document.querySelectorAll('.step').forEach(function(s){
     if(s===el){ s.classList.add('active'); s.classList.remove('done'); }
-    else if(s.compareDocumentPosition(el)&4){ s.classList.add('done'); s.classList.remove('active'); }
+    else if(s.compareDocumentPosition(el) & 4){ s.classList.add('done'); s.classList.remove('active'); }
     else{ s.classList.remove('active','done'); }
   });
 }
 var _toastT;
 function toast(msg){
-  var n=document.getElementById('notif');
+  var n = document.getElementById('notif');
   n.textContent=msg; n.style.display='block';
   clearTimeout(_toastT); _toastT=setTimeout(function(){n.style.display='none'},2800);
 }
+
+// ══ KEYBOARD SHORTCUTS ═══════════════════════════════════════
 document.addEventListener('keydown',function(e){
-  if(e.key==='r'&&!e.ctrlKey) reloadStore();
+  if(e.key==='F5'||e.key==='r'&&e.ctrlKey) return;
+  if(e.key==='r'||e.key==='R') reloadStore();
   if(e.key==='ArrowUp') scrollTop();
-  if(e.key==='Escape'&&isLive) stopDemo();
-  if(e.key==='f'||e.key==='F') toggleFullscreen();
+  if(e.key==='Escape' && isLive) stopDemo();
 });
 
-// ── BOOT ─────────────────────────────────────────────────────
+// ══ BOOT ═════════════════════════════════════════════════════
 initPeer();
 </script>
 </body>
